@@ -32,9 +32,9 @@ setup(
     description="Omnik Data Logger Proxy",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/jbouwh/omnikdatalogger/tree/master/scripts/proxy",
+    url="https://github.com/jbouwh/omnikdataloggerproxy",
     packages=find_packages(),
-    data_files=[('share/omnikdataloggerproxy', [
+    data_files=[('.', [
         'iptables_setup_example.sh',
         'omnikproxy_example_startup.sh',
         'config.yaml_example.txt',
@@ -44,7 +44,7 @@ setup(
     classifiers=[
         'Development Status :: 5 - Production/Stable',
         'Topic :: Home Automation',
-        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.7',
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
     ],
