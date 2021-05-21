@@ -19,8 +19,6 @@ jobs:
           context: .
           push: true
           tags: jbouwh/omnikdataloggerproxy:latest
-          secrets: |
-            GIT_AUTH_TOKEN=${{ secrets.MYTOKEN }}
       -
         name: Image digest
         run: echo ${{ steps.docker_build.outputs.digest }}
