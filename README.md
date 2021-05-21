@@ -53,26 +53,15 @@ There are example config files included:
 - [`config.ini_example.txt`](https://github.com/jbouwh/omnikdatalogger/blob/master/scripts/proxy/config.ini_example.txt).
 
 ## Using Docker
-This directory contains all artefacts to run the `omnikdataloggerproxy` as a `Docker` container.
-
-You can use the included `Makefile` to build and push the `Docker` image yourself.
-
-```
-$ make help
-help                           This help.
-build                          Build the Docker image. Use IMAGE_TAG to specify tag (default:latest)
-push                           Tag and push to Docker Hub
-login                          Login to Docker Hub
-```
-
-**PS**: this is already advanced use ... I already build and pushed the image to [Docker Hub](https://hub.docker.com/r/jbouwh/omnikdataloggerproxy).
 
 ### Run the docker container
 
-The following command will pull the `Docker` image, mount the `config.yaml` (current directory) and create the `Docker` container.
+The config files for omnikdataloggerproxy in the container will be will /config/config.yaml (settings), or if you would like to use the config.ini /config/config.ini. 
+
+The following command will pull the `Docker` image, mount the `config.yaml` (in the /config directory) and create the `Docker` container.
 
 ```
-$ docker run --name omnikdataloggerproxy -d -v ${PWD}/config.yaml:/config.yaml -p 10004:10004 --name omnikdataloggerproxy --restart unless-stopped jbouwh/omnikdataloggerproxy:latest
+$ docker run --name omnikdataloggerproxy -d -v ${PWD}/config.yaml:/config/config.yaml -p 10004:10004 --name omnikdataloggerproxy --restart unless-stopped jbouwh/omnikdataloggerproxy:latest
 ```
 
 I also added a `docker-compose.yml` that can be used. Run it at the folder where your `config.yaml` file resites. It is still possible to use `config.ini` files as well. This option is decrepated now.
