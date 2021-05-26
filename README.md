@@ -94,7 +94,7 @@ You can forward the logger trafic to the omnik servers, but if you rerouted yhe 
 
 ## Running omnikdataloggerproxy as a service on a Debian based system
 
-You can find the following sample config at `/usr/local/share/omnikdataloggerproxy/omnikdatalogggerproxy.config` after installing `pip3 install omnikdataloggerproxy` as root.
+You can find the following sample service config at `/usr/local/share/omnikdataloggerproxy/omnikdatalogggerproxy.service` after installing `pip3 install omnikdataloggerproxy` as root.
 
 ```ini
 [Unit]
