@@ -26,7 +26,7 @@ import logging
 import datetime
 import time
 
-__version__ = '1.2.9'
+__version__ = '1.3.0'
 listenaddress = b'127.0.0.1'                       # Default listenaddress
 listenport = 10004                                 # Make sure your firewall enables you listening at this port
 # There is no need to change this if this proxy must log your data directly to the Omnik/SolarmanPV servers
@@ -386,7 +386,7 @@ if __name__ == '__main__':
                         help='A local available address to listen to')
     parser.add_argument('--listenport', default=listenport, type=int,
                         help='The local port to listen to')
-    parser.add_argument('--omniklogger', default=omnikloggerpublicaddress,
+    parser.add_argument('--omniklogger', default=None,
                         help='Forward to an address omnik/SolarmanPV datalogger server listens to. '
                              'Set this to {0} as final forwarder.'.format(omnikloggerpublicaddress))
     parser.add_argument('--omnikloggerport', default=omnikloggerdestport, type=int,

@@ -42,15 +42,17 @@ key | optional | type | default | description
 `loglevel` | True | string | `INFO` | The basic loglevel [DEBUG, INFO, WARNING, ERROR, CRITICAL]
 `listenaddress` | True | string | `127.0.0.1` | A local available address to listen to
 `listenport` | True | int | `10004` | The local port to listen to
-`omniklogger` | True | string | `176.58.117.69` | Forward to an address omnik/SolarmanPV datalogger server listens to. Set this to `176.58.117.69` as final forwarder.
+`omniklogger` | True | string | _None_ | Forward to an address omnik/SolarmanPV datalogger server listens to. Set this to `176.58.117.69` as final forwarder.
 `listenport` | True | int | `10004` | The port the omnik/SolarmanPV datalogger server listens to.
 
-Comfig file settings will overrule the command line settings. The MQTT parameters will fallback to the settings in the section `output.mqtt:`. Specify a config file using the --settings (or --config) option.
+You can use the mqtt based client of omnikdatalogger `localproxy.hassapi`. You need to specify `mqtt_host` to activate this feature and specify all needed attributes.
+
+Config file settings will overrule the command line settings. The MQTT parameters will fallback to the settings in the section `output.mqtt:`. Specify a config file using the --settings (or --config) option.
 For details see the [Omnik Data Logger README.md](https://github.com/jbouwh/omnikdatalogger#mqtt_proxy-plugin-for-the-localproxy-client-in-the-section-clientlocalproxymqtt_proxy-of-appsyaml-or-configini)
 
 There are example config files included:
-- [`config.yaml_example.txt`](https://github.com/jbouwh/omnikdatalogger/blob/master/scripts/proxy/config.yaml_example.txt)
-- [`config.ini_example.txt`](https://github.com/jbouwh/omnikdatalogger/blob/master/scripts/proxy/config.ini_example.txt).
+- [`config.yaml_example.txt`](https://github.com/jbouwh/omnikdataloggerproxy/blob/main/config.yaml_example.txt)
+- [`config.ini_example.txt`](https://github.com/jbouwh/omnikdataloggerproxy/blob/main/config.ini_example.txt).
 
 ## Using Docker
 
