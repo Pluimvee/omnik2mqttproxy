@@ -385,11 +385,11 @@ if __name__ == '__main__':
     home = os.path.expanduser('~')
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', default=os.path.join(home, '.omnik/config.yaml'),
+    parser.add_argument('--settings', default=os.path.join(home, '.omnik/config.yaml'),
                         help='Path to .yaml configuration file', metavar="FILE")
     parser.add_argument('--section', default=None,
                         help='Section to .yaml configuration file to use. Defaults to the first section found.')
-    parser.add_argument('--settings', default=os.path.join(home, '.omnik/config.ini'),
+    parser.add_argument('--config', default=os.path.join(home, '.omnik/config.ini'),
                         help='Path to configuration file (ini) (DECREPATED!)', metavar="FILE")
     parser.add_argument('--serialnumber', default=None, nargs='+',
                         help='The serial number(s) of your inverter (required)')
@@ -437,7 +437,7 @@ if __name__ == '__main__':
         "CRITICAL": logging.CRITICAL
         }
 
-    if os.path.isfile(args.config):
+    if os.path.isfile(args.settings):
         settings = get_yaml_settings(args)
         args.mqtt_host = get_yaml_setting(settings, 'output.mqtt', 'host', args.mqtt_host)
         args.mqtt_port = get_yaml_setting(settings, 'output.mqtt', 'port', args.mqtt_port)
@@ -461,7 +461,7 @@ if __name__ == '__main__':
         args.listenport = get_yaml_setting(settings, 'proxy', 'listenport', args.listenport)
         args.omniklogger = get_yaml_setting(settings, 'proxy', 'omniklogger', args.omniklogger)
         args.omnikloggerport = get_yaml_setting(settings, 'proxy', 'omnikloggerport', args.omnikloggerport)
-    elif os.path.isfile(args.settings):
+    elif os.path.isfile(args.config):
         c = configparser.ConfigParser(converters={'list': lambda x: [i.strip() for i in x.split(',')]})
         c.read([args.config], encoding='utf-8')
         args.mqtt_host = c.get('output.mqtt', 'host', fallback=args.mqtt_host)
