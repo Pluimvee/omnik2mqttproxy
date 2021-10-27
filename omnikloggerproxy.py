@@ -26,7 +26,7 @@ import logging
 import datetime
 import time
 
-__version__ = '1.4.0'
+__version__ = '1.4.1'
 listenaddress = b'127.0.0.1'                       # Default listenaddress
 listenport = 10004                                 # Make sure your firewall enables you listening at this port
 # There is no need to change this if this proxy must log your data directly to the Omnik/SolarmanPV servers
@@ -385,11 +385,11 @@ if __name__ == '__main__':
     home = os.path.expanduser('~')
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--settings', default=os.path.join(home, '.omnik/config.yaml'),
+    parser.add_argument('--config', default=os.path.join(home, '.omnik/config.yaml'),
                         help='Path to .yaml configuration file', metavar="FILE")
     parser.add_argument('--section', default=None,
                         help='Section to .yaml configuration file to use. Defaults to the first section found.')
-    parser.add_argument('--config', default=os.path.join(home, '.omnik/config.ini'),
+    parser.add_argument('--settings', default=os.path.join(home, '.omnik/config.ini'),
                         help='Path to configuration file (ini) (DECREPATED!)', metavar="FILE")
     parser.add_argument('--serialnumber', default=None, nargs='+',
                         help='The serial number(s) of your inverter (required)')
