@@ -16,7 +16,7 @@ The supporting files are installed at the folder */usr/local/share/omnikdatalogg
 usage: omnikloggerproxy.py [-h] --serialnumber SERIALNUMBER [SERIALNUMBER ...]
                            [--config FILE  Path to .yaml configuration file]
                            [--section  Section to .yaml configuration file to use. Defaults to the first section found.]
-                           [--config FILE  Path to configuration file (ini) (DECREPATED!)]
+                           [--settings FILE  Path to configuration file (ini) (DECREPATED!)]
                            [--loglevel LOGLEVEL]
                            [--listenaddress LISTENADDRESS]
                            [--listenport LISTENPORT]
@@ -30,11 +30,24 @@ usage: omnikloggerproxy.py [-h] --serialnumber SERIALNUMBER [SERIALNUMBER ...]
                            [--mqtt_password MQTT_PASSWORD]
                            [--mqtt_device_name MQTT_DEVICE_NAME]
                            [--mqtt_logger_sensor_name MQTT_LOGGER_SENSOR_NAME]
+                           [--mqtt_tls MQTT_TLS]
+                           [--mqtt_ca_certs MQTT_CA_CERTS]
+                           [--mqtt_client_cert MQTT_CLIENT_CERT]
+                           [--mqtt_client_key MQTT_CLIENT_KEY]
 ```
 ### Configuration file
-The proxy parameters will fallback to the `config.ini` in the section `[proxy]`. Specify a configfile using the --config option.
+The proxy parameters will fallback to the `config.yaml` in under key `omnikdatalogger->proxy`. Specify a configfile using the --config option.
 This way it easier tot run omnikdatalogger proxy as a docker container.
-> NOTE: The use of config.ini will be decrepated and config.yaml replaces config.ini.
+> NOTE: The use of config.ini will is decrepated and config.yaml replaces config.ini.
+
+```yaml
+omnikdatalogger:
+  proxy:
+    serialnumber:
+    - serial1232323
+    ...
+    ...
+```
 
 key | optional | type | default | description
 -- | --| -- | -- | --
@@ -53,6 +66,37 @@ For details see the [Omnik Data Logger README.md](https://github.com/jbouwh/omni
 There are example config files included:
 - [`config.yaml_example.txt`](https://github.com/jbouwh/omnikdataloggerproxy/blob/main/config.yaml_example.txt)
 - [`config.ini_example.txt`](https://github.com/jbouwh/omnikdataloggerproxy/blob/main/config.ini_example.txt).
+
+#### MQTT configuration
+Omnikdatalogger proxy supports forwarding using MQTT. The Omnikdatalogger mqtt_proxy and hassapi plugin (localproxy client) can use the data published by Omnikdataloggerproxy. The MQTT can also be read from the config.yaml file under key `omnikdatalogger->proxy`.
+
+```yaml
+omnikdatalogger:
+    ...
+    ...
+  mqtt:
+    discovery_prefix: homeassistant
+    ...
+    ...    
+```
+
+| key                  | optional | type    | default                 | description                                                                                                                                                      |
+| -------------------- | -------- | ------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `discovery_prefix`   | True     | string  | _'homeassistant'_       | The mqtt plugin supports MQTT auto discovery with Home Assistant. The discovery_prefix configures the topic prefix Home Assistant listens to for auto discovery. |
+| `device_name`        | True     | string  | _'Datalogger proxy'_    | Omnik data logger proxy only setting. Overrides the name of the datalogger.                                                                                      |
+| `logger_sensor_name` | True     | string  | _'Datalogger'_          | Omnik data logger proxy only setting. Overrides the name of the datalogger datalogger sensor entity.                                                             |
+| `append_plant_id`    | True     | bool    | _False_                 | When a device_name is specified the plant id can be added to the name te be able to identify the plant.                                                          |
+| `host`               | True     | string  | `localhost`             | Hostname or fqdn of the MQTT server for publishing.                                                                                                              |
+| `port`               | True     | integer | _1883_                  | MQTT port to be used.                                                                                                                                            |
+| `retain`             | True     | bool    | _True_                  | Retains the data send to the MQTT service                                                                                                                        |
+| `client_name_prefix` | True     | string  | _'ha-mqtt-omniklogger'_ | Defines a prefix that is used as client name. A 4 byte uuid is added to ensure an unique ID.                                                                     |
+| `username`           | False    | string  | _(none)_                | The MQTT username used for authentication                                                                                                                        |
+| `password`           | False    | string  | _(none)_                | The MQTT password used for authentication                                                                                                                        |
+| `tls`                | True     | bool    | _False_                 | Secures the connection to the MQTT service, the MQTT server side needs a valid certificate                                                                       |
+| `ca_certs`           | True     | string  | _(none)_                | File path to a file containing alternative CA's. If not configure the systems default CA is used                                                                 |
+| `client_cert`        | True     | string  | _(none)_                | File path to a file containing a PEM encoded client certificate                                                                                                  |
+| `client_key`         | True     | string  | _(none)_                | File path to a file containing a PEM encoded client private key                                                                                                  |
+
 
 ## Using Docker
 

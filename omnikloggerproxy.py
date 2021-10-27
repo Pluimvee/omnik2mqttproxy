@@ -161,6 +161,11 @@ class mqtt(object):
         self.mqtt_host = args.mqtt_host
         self.mqtt_port = int(args.mqtt_port)
         self.mqtt_retain = args.mqtt_retain
+        self.tls = args.mqtt_tls
+        self.ca_certs = args.mqtt_ca_certs
+        self.client_cert = args.mqtt_client_cert
+        self.client_key = args.mqtt_client_key
+
         if not args.mqtt_username or not args.mqtt_password:
             logger.error("Please specify MQTT username and password in the configuration")
             self.mqtt_client = None
@@ -175,6 +180,14 @@ class mqtt(object):
         self.mqtt_client.on_disconnect = self._mqtt_on_disconnect  # bind call back function
         # self.mqtt_client.on_message=mqtt_on_message (not used)
         self.mqtt_client.username_pw_set(self.mqtt_username, self.mqtt_password)
+        # TLS support
+        if self.tls:
+            self.mqtt_client.tls_set(
+                ca_certs=self.ca_certs or None,
+                certfile=self.client_cert or None,
+                keyfile=self.client_key or None,
+            )
+
         self.mqtt_client.connect(self.mqtt_host, self.mqtt_port)
         # start processing messages
         self.mqtt_client.loop_start()
@@ -409,7 +422,12 @@ if __name__ == '__main__':
                         help='The device name that apears using mqtt autodiscovery (HA). Config overrides.')
     parser.add_argument('--mqtt_logger_sensor_name', default='Datalogger',
                         help='The name of data sensor using mqtt autodiscovery (HA). Config overrides.')
+    parser.add_argument('--mqtt_tls', default=False, type=bool, help='Secures the connection to the MQTT service, the MQTT server side needs a valid certificate.')
+    parser.add_argument('--mqtt_ca_certs', default=None, help="File path to a file containing alternative CA's. If not configure the systems default CA is used.")
+    parser.add_argument('--mqtt_client_cert', default=None, help='File path to a file containing a PEM encoded client certificate.')
+    parser.add_argument('--mqtt_client_key', default=None, help='File path to a file containing a PEM encoded client private key.')
     args = parser.parse_args()
+
     FORMAT = '%(module)s: %(message)s'
     loglevel = {
         "DEBUG": logging.DEBUG,
@@ -419,7 +437,7 @@ if __name__ == '__main__':
         "CRITICAL": logging.CRITICAL
         }
 
-    if os.path.isfile(args.settings):
+    if os.path.isfile(args.config):
         settings = get_yaml_settings(args)
         args.mqtt_host = get_yaml_setting(settings, 'output.mqtt', 'host', args.mqtt_host)
         args.mqtt_port = get_yaml_setting(settings, 'output.mqtt', 'port', args.mqtt_port)
@@ -433,13 +451,17 @@ if __name__ == '__main__':
         args.mqtt_device_name = get_yaml_setting(settings, 'output.mqtt', 'device_name', args.mqtt_device_name)
         args.mqtt_logger_sensor_name = get_yaml_setting(settings, 'output.mqtt',
                                                         'logger_sensor_name', args.mqtt_logger_sensor_name)
+        args.mqtt_tls = get_yaml_setting(settings, 'output.mqtt', 'tls', args.mqtt_tls)
+        args.mqtt_ca_certs = get_yaml_setting(settings, 'output.mqtt', 'ca_certs', args.mqtt_ca_certs)
+        args.mqtt_client_cert = get_yaml_setting(settings, 'output.mqtt', 'client_cert', args.mqtt_client_cert)
+        args.mqtt_client_key = get_yaml_setting(settings, 'output.mqtt', 'client_key', args.mqtt_client_key)
         args.serialnumber = get_yaml_setting(settings, 'proxy', 'serialnumber', args.serialnumber)
         args.loglevel = get_yaml_setting(settings, 'proxy', 'loglevel', args.loglevel)
         args.listenaddress = get_yaml_setting(settings, 'proxy', 'listenaddress', args.listenaddress)
         args.listenport = get_yaml_setting(settings, 'proxy', 'listenport', args.listenport)
         args.omniklogger = get_yaml_setting(settings, 'proxy', 'omniklogger', args.omniklogger)
         args.omnikloggerport = get_yaml_setting(settings, 'proxy', 'omnikloggerport', args.omnikloggerport)
-    elif os.path.isfile(args.config):
+    elif os.path.isfile(args.settings):
         c = configparser.ConfigParser(converters={'list': lambda x: [i.strip() for i in x.split(',')]})
         c.read([args.config], encoding='utf-8')
         args.mqtt_host = c.get('output.mqtt', 'host', fallback=args.mqtt_host)
@@ -452,7 +474,11 @@ if __name__ == '__main__':
         args.mqtt_device_name = c.get('output.mqtt', 'device_name', fallback=args.mqtt_device_name)
         args.logger_sensor_name = c.get('output.mqtt', 'logger_sensor_name', fallback=args.mqtt_logger_sensor_name)
 
-        # TODO: Try to get from config from no arguments are given. Handle required parameters and defaults
+        args.mqtt_tls = c.get('output.mqtt', 'tls', fallback=args.mqtt_tls)
+        args.mqtt_ca_certs = c.get('output.mqtt', 'ca_certs', fallback=args.mqtt_ca_certs)
+        args.mqtt_client_cert = c.get('output.mqtt', 'client_cert', fallback=args.mqtt_client_cert)
+        args.mqtt_client_key = c.get('output.mqtt', 'client_key', fallback=args.mqtt_client_key)
+
         args.serialnumber = c.get('proxy', 'serialnumber', fallback=args.serialnumber)
         args.loglevel = c.get('proxy', 'loglevel', fallback=args.loglevel)
         args.listenaddress = c.get('proxy', 'listenaddress', fallback=args.listenaddress)
