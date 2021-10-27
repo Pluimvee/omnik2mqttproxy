@@ -14,9 +14,9 @@ The supporting files are installed at the folder */usr/local/share/omnikdatalogg
 ### Command line
 ```
 usage: omnikloggerproxy.py [-h] --serialnumber SERIALNUMBER [SERIALNUMBER ...]
-                           [--config FILE  Path to .yaml configuration file]
+                           [--settings FILE  Path to .yaml configuration file]
                            [--section  Section to .yaml configuration file to use. Defaults to the first section found.]
-                           [--settings FILE  Path to configuration file (ini) (DECREPATED!)]
+                           [--config FILE  Path to configuration file (ini) (DECREPATED!)]
                            [--loglevel LOGLEVEL]
                            [--listenaddress LISTENADDRESS]
                            [--listenport LISTENPORT]

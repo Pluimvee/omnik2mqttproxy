@@ -26,7 +26,7 @@ import logging
 import datetime
 import time
 
-__version__ = '1.4.0'
+__version__ = '1.4.1'
 listenaddress = b'127.0.0.1'                       # Default listenaddress
 listenport = 10004                                 # Make sure your firewall enables you listening at this port
 # There is no need to change this if this proxy must log your data directly to the Omnik/SolarmanPV servers
@@ -437,7 +437,7 @@ if __name__ == '__main__':
         "CRITICAL": logging.CRITICAL
         }
 
-    if os.path.isfile(args.config):
+    if os.path.isfile(args.settings):
         settings = get_yaml_settings(args)
         args.mqtt_host = get_yaml_setting(settings, 'output.mqtt', 'host', args.mqtt_host)
         args.mqtt_port = get_yaml_setting(settings, 'output.mqtt', 'port', args.mqtt_port)
@@ -461,7 +461,7 @@ if __name__ == '__main__':
         args.listenport = get_yaml_setting(settings, 'proxy', 'listenport', args.listenport)
         args.omniklogger = get_yaml_setting(settings, 'proxy', 'omniklogger', args.omniklogger)
         args.omnikloggerport = get_yaml_setting(settings, 'proxy', 'omnikloggerport', args.omnikloggerport)
-    elif os.path.isfile(args.settings):
+    elif os.path.isfile(args.config):
         c = configparser.ConfigParser(converters={'list': lambda x: [i.strip() for i in x.split(',')]})
         c.read([args.config], encoding='utf-8')
         args.mqtt_host = c.get('output.mqtt', 'host', fallback=args.mqtt_host)

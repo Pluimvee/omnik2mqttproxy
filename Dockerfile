@@ -23,4 +23,4 @@ EXPOSE 10004
 
 ENTRYPOINT ["omnikloggerproxy.py"]
 
-CMD ["--config", "/config.yaml", "--settings", "/config.ini"]
+CMD ["--settings", "/config.yaml", "--config", "/config.ini"]
