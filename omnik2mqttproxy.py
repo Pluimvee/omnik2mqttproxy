@@ -14,6 +14,7 @@ import socket
 import socketserver
 import argparse
 import configparser
+import struct
 import yaml
 import threading
 import signal
@@ -38,7 +39,12 @@ CHECK_STATUS_INTERVAL = 60
 INVERTER_MAX_IDLE_TIME = 6
 
 global stopflag
-logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG, 
+    format='%(asctime)s [%(levelname)s] - %(message)s',
+    filename='OmnikLogger.log',
+    force=True)  # pass explicit filename here 
+logger = logging.getLogger('OmnikLogger.log') #__name__)
 
 
 # Generic signal handler
@@ -60,15 +66,16 @@ class ProxyServer(threading.Thread):
             self.statustimer.start()
 
         # Create tcp server
-        self.tcpServer = socketserver.TCPServer((args.listenaddress, args.listenport), RequestHandler)
+        #self.tcpServer = socketserver.TCPServer((args.listenaddress, args.listenport), RequestHandler)
+        self.tcpServer = socketserver.UDPServer((args.listenaddress, 10004), RequestHandler)
 
     def check_status(self):
+        logger.debug("Checking if we have some data to forward")
         for serial in RequestHandler.lastupdate:
             if RequestHandler.lastupdate[serial] + datetime.timedelta(minutes=INVERTER_MAX_IDLE_TIME) < \
                     datetime.datetime.now():
                 RequestHandler.status[serial] = STATUS_OFF
-                RequestHandler.mqttfw.mqttforward('',
-                                                  serial, RequestHandler.status[serial])
+                RequestHandler.mqttfw.mqttforward([], serial, RequestHandler.status[serial])
         # Restart timer
         self.statustimer = threading.Timer(CHECK_STATUS_INTERVAL, self.check_status)
         self.statustimer.start()
@@ -82,7 +89,7 @@ class ProxyServer(threading.Thread):
 
     def run(self):
         # Try to run TCP server
-        logger.info('Start in Omnik proxy server. Listening to {0}:{1}'.format(args.listenaddress, args.listenport))
+        logger.info('Start Omnik proxy server. Listening to {0}:{1}'.format(args.listenaddress, args.listenport))
         self.tcpServer.serve_forever()
 
 
@@ -93,10 +100,19 @@ class RequestHandler(socketserver.BaseRequestHandler):
     lastupdate = {}
 
     def handle(self):
-        msg = self.request.recv(1024)
+        #msg = self.request.recv(1024)
+        msg = self.request[0]
+        logger.debug("Message received from inverter address {0}".format(self.client_address[0]))
 
-        if len(msg) >= 99:
+        if len(msg) >= 99:  
             self._processmsg(msg)
+        ## Using UDP we will have a second message with \x68\x11\x41\xF0 2x[\xD5\x1F\x19\x24] 'DATA SEND IS OK\r\n' CRC \x16
+        else:
+            confirmation = str(msg[12:26].decode())
+            if confirmation in "DATA SEND IS OK":
+                # TODO we should confirm STATUS_OK without updating the sensor data
+                logger.debug("Data send confirmation received")
+            logger.debug("Ignoring message {0}".format(binascii.hexlify(msg, ' ')))
 
     def _processmsg(self, msg):
         rawserial = str(msg[15:31].decode())
@@ -119,40 +135,7 @@ class RequestHandler(socketserver.BaseRequestHandler):
         # TODO
         # Forward logger message to MTTQ if host is defined
         if RequestHandler.mqttfw:
-            RequestHandler.mqttfw.mqttforward(json.dumps(str(binascii.b2a_base64(msg), encoding='ascii')),
-                                              serial, status)
-        # Forward data to proxy or Omnik datalogger
-        if args.omniklogger:
-            self.fwthread = tcpforward()
-            self.fwthread.forward(msg)
-            self.fwthread.join(60)
-            if self.fwthread.is_alive():
-                # Kill the thread if it is still blocking
-                logger.warning("Waiting for forward connection takes a long time...")
-                self.fwthread.join()
-
-
-class tcpforward(threading.Thread):
-
-    def forward(self, data):
-        threading.Thread.__init__(self, target=self._run)
-        self.data = data
-        self.start()
-
-    def _run(self):
-        loggeraddress = (args.omniklogger, int(args.omnikloggerport))
-        self.forwardsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.forwardsock.settimeout(90)
-        try:
-            self.forwardsock.connect(loggeraddress)
-            self.forwardsock.sendall(self.data)
-            logger.info('{0} Forwarded to "{1}"'.format(datetime.datetime.now(), args.omniklogger))
-            self.forwardsock.close()
-        except Exception as e:
-            logger.warning("Error forwarding: {0}".format(e))
-        finally:
-            self.forwardsock.close()
-
+            RequestHandler.mqttfw.mqttforward(msg, serial, status)
 
 class mqtt(object):
 
@@ -224,7 +207,7 @@ class mqtt(object):
             "identifiers": ["{0}_{1}".format(self.device_name, self.serial)],
             "name": "{0}_{1}".format(self.device_name, self.serial),
             "mdl": model,
-            "mf": 'JBsoft',
+            "mf": 'InnoVeer',
             "sw": __version__
             }
         return device_pl
@@ -251,13 +234,49 @@ class mqtt(object):
         value_pl = {"state": self.status}
         return value_pl
 
+    def __getShort(self, begin, divider=10):
+        num = struct.unpack("!H", self.data[begin : begin + 2])[0]
+        if num == 65535:
+            return -1
+        else:
+            return float(num) / divider
+
+    def __getLong(self, begin, divider=10):
+        return float(struct.unpack("!I", self.data[begin : begin + 4])[0]) / divider
+
+    def getPower(self):
+        return int(self.__getShort(59, 1))
+    
+    def getETotal(self):
+        return self.__getLong(71)
+
+    def getEToday(self):
+        return self.__getShort(69, 100)  # Devide by 100
+
+    def getTemp(self):
+        return self.__getShort(31)
+
     def _attribute_payload(self):
-        attr_pl = {
-            "inverter": self.serial,
-            "data": self.data,
-            "timestamp": time.time(),
-            "last_update": "{0} {1}".format(self.reporttime.strftime('%Y-%m-%d'), self.reporttime.strftime('%H:%M:%S'))
-            }
+        if self.status == STATUS_ON:
+            attr_pl = {
+                "inverter": self.serial,
+                "data": json.dumps(str(binascii.b2a_base64(self.data), encoding='ascii')),
+                "current_power": self.getPower(),
+                "today_energy": self.getEToday(),
+                "total_energy": self.getETotal(),
+                "inverter_temperature": self.getTemp(),
+                "timestamp": time.time(),
+                "last_update": "{0} {1}".format(self.reporttime.strftime('%Y-%m-%d'), self.reporttime.strftime('%H:%M:%S'))
+                }
+            logger.debug("STATUS_ON attributes with ETotal: {0}, EToday: {1}, Power: {2}, Temp: {3}".format(self.getETotal(), self.getEToday(), self.getPower(), self.getTemp()))
+            logger.debug(binascii.hexlify(self.data, ' '))
+        else:
+            attr_pl = {
+                "inverter": self.serial,
+                "timestamp": time.time(),
+                "last_update": "{0} {1}".format(self.reporttime.strftime('%Y-%m-%d'), self.reporttime.strftime('%H:%M:%S'))
+                }
+            logger.debug("STATUS_OFF attributes created.")
         return attr_pl
 
     def _publish_config(self, topics, config_pl, entity):
@@ -302,6 +321,8 @@ class mqtt(object):
     def mqttforward(self, data, serial, status):
         # Decode data: base64.b64decode(json.loads(d, encoding='UTF-8'))
         self.lock.acquire()
+        logger.debug('Sending a message to MQTT service at "{0}"'.format(args.mqtt_host))
+
         self.data = data
         self.serial = serial
         self.status = status
@@ -320,7 +341,7 @@ class mqtt(object):
         # publish state
         value_pl = self._value_payload()
         if self._publish_state(topics, value_pl):
-            logger.info('{0} Message forwarded to MQTT service at "{1}"'.format(datetime.datetime.now(), args.mqtt_host))
+            logger.info('Message forwarded to MQTT service at "{0}"'.format(args.mqtt_host))
 
         self.lock.release()
 
