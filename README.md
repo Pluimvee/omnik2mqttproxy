@@ -1,7 +1,4 @@
 # OMNIK2MQTTPROXY
-![omnikdatalogger](https://github.com/jbouwh/omnikdatalogger/workflows/omnikdatalogger/badge.svg)
-![PyPI version](https://badge.fury.io/py/omnikdataloggerproxy.svg) 
-
 Based on the scripts build by @jbouwh and furthermore inspired by the work of 
 @klaasnicolaas https://github.com/klaasnicolaas/python-omnikinverter
 @robbinjansen https://github.com/robbinjanssen/home-assistant-omnik-inverter
