@@ -9,7 +9,27 @@
         "type": "python",
         "request": "launch",
         "program": "${workspaceFolder}/omnikloggerproxy.py",
-        "args": ["--loglevel","DEBUG","--settings", "${workspaceFolder}/.omnik/config.yaml"]
+        "args": [
+          "--loglevel",
+          "DEBUG",
+          "--settings",
+          "${workspaceFolder}/.omnik/config.yaml"
+        ]
+      },
+      {
+        "name": "Docker: Python - General",
+        "type": "docker",
+        "request": "launch",
+        "preLaunchTask": "docker-run: debug",
+        "python": {
+          "pathMappings": [
+            {
+              "localRoot": "${workspaceFolder}",
+              "remoteRoot": "/app"
+            }
+          ],
+          "projectType": "general"
+        }
       }
     ]
   }

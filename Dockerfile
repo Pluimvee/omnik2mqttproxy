@@ -1,26 +1,23 @@
-FROM python:3.9.1-alpine3.12 as base
+# For more information, please refer to https://aka.ms/vscode-docker-python
+FROM python:3.10-slim
 
-RUN apk add --update \
-    tzdata
+# Keeps Python from generating .pyc files in the container
+ENV PYTHONDONTWRITEBYTECODE=1
 
-FROM python:3.9.1-alpine3.12
+# Turns off buffering for easier container logging
+ENV PYTHONUNBUFFERED=1
 
-COPY --from=base /usr/share/zoneinfo /usr/share/zoneinfo
-ENV TZ=Europe/Amsterdam
+# Install pip requirements
+COPY requirements.txt .
+RUN python -m pip install -r requirements.txt
 
-WORKDIR /source
-COPY requirements.txt omnikloggerproxy.py omnikdataloggerproxy.service config.ini_example.txt config.yaml_example.txt \
-  omnikproxy_example_startup.sh iptables_setup_example.sh setup.py README.md ./
+WORKDIR /app
+COPY . /app
 
-RUN pip3 install -r requirements.txt --upgrade && \
-  adduser -D -u 1000 omnik && \
-  python3 setup.py install
+# Creates a non-root user with an explicit UID and adds permission to access the /app folder
+# For more info, please refer to https://aka.ms/vscode-docker-python-configure-containers
+RUN adduser -u 5678 --disabled-password --gecos "" appuser && chown -R appuser /app
+USER appuser
 
-WORKDIR /home/omnik
-USER omnik
-
-EXPOSE 10004
-
-ENTRYPOINT ["omnikloggerproxy.py"]
-
-CMD ["--settings", "/config.yaml", "--config", "/config.ini"]
+# During debugging, this entry point will be overridden. For more information, please refer to https://aka.ms/vscode-docker-python-debug
+CMD ["python", "omnik2mqttproxy.py"]
