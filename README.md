@@ -1,17 +1,14 @@
 # OMNIK2MQTTPROXY
-![omnikdatalogger](https://github.com/jbouwh/omnikdatalogger/workflows/omnikdatalogger/badge.svg)
-![PyPI version](https://badge.fury.io/py/omnikdataloggerproxy.svg) 
-
 Based on the scripts build by @jbouwh and furthermore inspired by the work of 
 @klaasnicolaas https://github.com/klaasnicolaas/python-omnikinverter
 @robbinjansen https://github.com/robbinjanssen/home-assistant-omnik-inverter
 
 Its my first programming in Python so bare with me.
 
-While the previous mentioned people did amazing work on getting the Omnik invertor integrated in Home Assistant, all these versions didnt work out for my Omnik version.
+While the previous mentioned people did amazing work on getting the Omnik invertor integrated in Home Assistant, all these versions didnt work out for my Omnik invertor.
 
 This fork of the proxy will use a UDP server to receive update messages from the Omnik Invertor and forwards these, using multiple sensors to MQTT. Using auto discovery the sensors will be available in HA.
-Eventually I would like this version to be running in AppDeamon, however so far I wasnt able to get the AppDeamon version to limit memeory usage, to get all required packages installen and/or to listen to the network address available to my invertor (I'm running HAOS in HyperV on a laptiop running windows 10)
+Eventually I would like this version to be running in AppDeamon, however so far I wasnt able to get AppDeamon to maintain memory usage, to get required packages installed and to listen to the network address which is available to my invertor (I'm running HAOS in HyperV on a laptiop running windows 10)
 
 ## A level 2 heading
 `I need to keep this here for my reference as also using GitHub is new to me`
