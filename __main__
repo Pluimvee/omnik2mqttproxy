@@ -1,5 +1,0 @@
-2023-03-21 14:02:00,361 [INFO] - Enabling MQTT forward to 192.168.2.170
-2023-03-21 14:02:00,386 [INFO] - Start Omnik proxy server. Listening to 192.168.2.103:10004
-2023-03-21 14:02:00,394 [INFO] - MQTT connected
-2023-03-21 14:02:41,657 [DEBUG] - Signal 2 received. Setting stopflag.
-2023-03-21 14:02:41,720 [INFO] - Stopping threads...
