@@ -42,60 +42,67 @@ global stopflag
 logging.basicConfig(
     level=logging.DEBUG, 
     format='%(asctime)s [%(levelname)s] - %(message)s',
-    filename='OmnikLogger.log',
-    force=True)  # pass explicit filename here 
-logger = logging.getLogger('OmnikLogger.log') #__name__)
+    filename='Omnik2mqtt.log',
+    force=True) 
+logger = logging.getLogger(__name__)
 
 
-# Generic signal handler
+# Generic signal handler to stop program
 def signal_handler(signal, frame):
     global stopflag
     logger.debug("Signal {:0d} received. Setting stopflag.".format(signal))
     stopflag = True
 
 
+# The main class which creates 
+# 1. a UDP server
+# 2. an MQTT client
+# 3. a timer callback to poll for updates
 class ProxyServer(threading.Thread):
 
     def __init__(self, args=[], kwargs={}):
         threading.Thread.__init__(self)
-        if args.mqtt_host:
-            logger.info('Enabling MQTT forward to {0}'.format(args.mqtt_host))
-            RequestHandler.mqttfw = mqtt(args)
-            # Check every 60 sec if there is a valid update status aged less than 30 minutes
-            self.statustimer = threading.Timer(CHECK_STATUS_INTERVAL, self.check_status)
-            self.statustimer.start()
+        
+        # Create UDP server
+        logger.info('Creating the UDP server')
+        self.udpserver = socketserver.UDPServer((args.listenaddress, args.listenport), RequestHandler)
 
-        # Create tcp server
-        #self.tcpServer = socketserver.TCPServer((args.listenaddress, args.listenport), RequestHandler)
-        self.tcpServer = socketserver.UDPServer((args.listenaddress, 10004), RequestHandler)
+        # creating MQTT client
+        if RequestHandler.mqtt_fw == None:
+            logger.info('Enabling MQTT forward to {0}:{1}'.format(args.mqtt_host, args.mqtt_port))
+            RequestHandler.mqtt_fw = mqtt(args)
+        
+        # Create a timer callback for every 60 sec if there is a valid update status
+        self.statustimer = threading.Timer(CHECK_STATUS_INTERVAL, self.check_status)
+        self.statustimer.start()
 
+    # the chack_status loop called each 60 sec
     def check_status(self):
-        logger.debug("Checking if we have some data to forward")
+        logger.debug("Checking if we have new data to forward")
         for serial in RequestHandler.lastupdate:
             if RequestHandler.lastupdate[serial] + datetime.timedelta(minutes=INVERTER_MAX_IDLE_TIME) < \
                     datetime.datetime.now():
                 RequestHandler.status[serial] = STATUS_OFF
-                RequestHandler.mqttfw.mqttforward([], serial, RequestHandler.status[serial])
-        # Restart timer
+                RequestHandler.mqtt_fw.mqttforward([], serial, RequestHandler.status[serial])
+        # Restart the timer
         self.statustimer = threading.Timer(CHECK_STATUS_INTERVAL, self.check_status)
         self.statustimer.start()
 
     def cancel(self):
         # Stop the loop
-        self.tcpServer.shutdown()
-        if RequestHandler.mqttfw:
-            self.statustimer.cancel()
-            RequestHandler.mqttfw.close()
+        self.udpserver.shutdown()
+        self.statustimer.cancel()
+        RequestHandler.mqtt_fw.close()
 
     def run(self):
-        # Try to run TCP server
+        # Try to run UDP server
         logger.info('Start Omnik proxy server. Listening to {0}:{1}'.format(args.listenaddress, args.listenport))
-        self.tcpServer.serve_forever()
+        self.udpserver.serve_forever()
 
-
+# class to handle UDP packages
 class RequestHandler(socketserver.BaseRequestHandler):
 
-    mqttfw = None
+    mqtt_fw = None
     status = {}
     lastupdate = {}
 
@@ -104,39 +111,25 @@ class RequestHandler(socketserver.BaseRequestHandler):
         msg = self.request[0]
         logger.debug("Message received from inverter address {0}".format(self.client_address[0]))
 
-        if len(msg) >= 99:  
-            self._processmsg(msg)
-        ## Using UDP we will have a second message with \x68\x11\x41\xF0 2x[\xD5\x1F\x19\x24] 'DATA SEND IS OK\r\n' CRC \x16
+        if len(msg) >= 99:
+            # if the package is more than 99 bytes, get the serial number form the inverter
+            rawserial = str(msg[15:31].decode())
+            logger.info("Processing message for inverter '{0}'".format(rawserial))
+            # register the status per inverter_serial
+            self.status[rawserial] = STATUS_ON
+            self.lastupdate[rawserial] = datetime.datetime.now()
+            # Forward logger message to MTTQ if host is defined
+            if self.mqtt_fw:
+                self.mqtt_fw.mqttforward(msg, rawserial, self.status[rawserial])
         else:
+            ## Using UDP we get a second message with \x68\x11\x41\xF0 2x[\xD5\x1F\x19\x24] 'DATA SEND IS OK\r\n' CRC \x16
             confirmation = str(msg[12:26].decode())
             if confirmation in "DATA SEND IS OK":
                 # TODO we should confirm STATUS_OK without updating the sensor data
                 logger.debug("Data send confirmation received")
             logger.debug("Ignoring message {0}".format(binascii.hexlify(msg, ' ')))
 
-    def _processmsg(self, msg):
-        rawserial = str(msg[15:31].decode())
-        # obj dLog transforms de raw data from the photovoltaic Systems converter
-        valid = False
-        if rawserial in args.serialnumber:
-            # TODO: Dit gaat niet werken zo
-            RequestHandler.status[rawserial] = STATUS_ON
-            RequestHandler.lastupdate[rawserial] = datetime.datetime.now()
-            valid = True
-        if valid:
-            # Process data
-            logger.info("Processing message for inverter '{0}'".format(rawserial))
-            self.forwardstate(msg, rawserial, self.status[rawserial])
-        else:
-            logger.warning("Ignoring received data!")
-
-    def forwardstate(self, msg, serial, status):
-        # Forward data to datalogger and MQTT
-        # TODO
-        # Forward logger message to MTTQ if host is defined
-        if RequestHandler.mqttfw:
-            RequestHandler.mqttfw.mqttforward(msg, serial, status)
-
+# MQTT class
 class mqtt(object):
 
     def __init__(self, args=[], kwargs={}):
@@ -178,6 +171,7 @@ class mqtt(object):
         self.discovery_prefix = args.mqtt_discovery_prefix
         self.device_name = args.mqtt_device_name
         self.logger_sensor_name = args.mqtt_logger_sensor_name
+        self.serial = args.serialnumber
 
         # lock
         self.lock = threading.Condition(threading.Lock())
@@ -191,22 +185,37 @@ class mqtt(object):
 
     def _topics(self):
         topics = {}
-        topics['main'] = "{0}/binary_sensor/{1}_{2}".format(self.discovery_prefix, self.logger_sensor_name, self.serial)
-        topics['state'] = "{0}/state".format(topics['main'])
-        topics['attr'] = "{0}/attr".format(topics['main'])
+        topics['announce'] = "{0}/sensor/{1}_{2}".format(self.discovery_prefix, self.logger_sensor_name, self.serial)
+        topics['update'] = "aha/{0}".format(self.serial)
+        
+        topics['state'] = {}
+        topics['attr'] = {}
         topics['config'] = {}
-        topics['config']['logger_sensor'] = "{0}/logger_sensor/config".format(topics['main'])
+
+        topics['config']['logger']    = "{0}/logger/config".format(topics['announce'])
+        topics['state']['logger']     = "{0}/logger/state".format(topics['update'])
+        topics['attr']['logger']      = "{0}/logger/attr".format(topics['update'])
+
+        topics['config']['power']     = "{0}/power/config".format(topics['announce'])
+        topics['state']['power']      = "{0}/power/state".format(topics['update'])
+        topics['attr']['power']       = "{0}/power/attr".format(topics['update'])
+
+        topics['config']['E-today']     = "{0}/E-today/config".format(topics['announce'])
+        topics['state']['E-today']      = "{0}/E-today/state".format(topics['update'])
+        topics['attr']['E-today']       = "{0}/E-today/attr".format(topics['update'])
+
+        topics['config']['E-total']     = "{0}/E-total/config".format(topics['announce'])
+        topics['state']['E-total']      = "{0}/E-total/state".format(topics['update'])
+        topics['attr']['E-total']       = "{0}/E-total/attr".format(topics['update'])
+
         return topics
 
     def _device_payload(self):
-        # Determine model
-        model = "Omnik datalogger proxy"
-
         # Device payload
         device_pl = {
             "identifiers": ["{0}_{1}".format(self.device_name, self.serial)],
             "name": "{0}_{1}".format(self.device_name, self.serial),
-            "mdl": model,
+            "mdl": "Omnik datalogger proxy",
             "mf": 'InnoVeer',
             "sw": __version__
             }
@@ -218,21 +227,48 @@ class mqtt(object):
         # Fill config_pl dict
         config_pl = {}
         # current_power
-        config_pl['logger_sensor'] = {
-            "~": "{0}".format(topics['main']),
-            "uniq_id": "{0}_{1}_logger".format(self.device_name, self.serial),
-            "name": "{0}".format(self.logger_sensor_name),
+        config_pl['logger'] = {
+            "~": "{0}/logger".format(topics['update']),
+            "uniq_id": "Logger_{0}".format(self.serial),
+            "name": "Omnik-Logger",
             "stat_t": "~/state",
             "json_attr_t": "~/attr",
-            "dev_cla": "power",
+            "dev_cla": "enum",
             "val_tpl": "{{ value_json.state }}",
+            "dev": device_pl
+            }
+        config_pl['power'] = {
+            "~": "{0}/power".format(topics['update']),
+            "uniq_id": "Power_{0}".format(self.serial),
+            "name": "Omnik-Power",
+            "stat_t": "~/state",
+            "dev_cla": "power",
+            "state_class": "measurement",
+            "unit_of_measurement": "W",
+            "dev": device_pl
+            }
+        config_pl['E-today'] = {
+            "~": "{0}/E-today".format(topics['update']),
+            "uniq_id": "EToday_{0}".format(self.serial),
+            "name": "Omnik-Energy-Today",
+            "stat_t": "~/state",
+            "dev_cla": "energy",
+            "unit_of_measurement": "kWh",
+            "state_class": "total",
+            "dev": device_pl
+            }
+        config_pl['E-total'] = {
+            "~": "{0}/E-total".format(topics['update']),
+            "uniq_id": "ETotal_{0}".format(self.serial),
+            "name": "Omnik-Energy-Total",
+            "stat_t": "~/state",
+            "dev_cla": "energy",
+            "state_class": "total_increasing",
+            "unit_of_measurement": "kWh",
             "dev": device_pl
             }
         return config_pl
 
-    def _value_payload(self):
-        value_pl = {"state": self.status}
-        return value_pl
 
     def __getShort(self, begin, divider=10):
         num = struct.unpack("!H", self.data[begin : begin + 2])[0]
@@ -256,9 +292,18 @@ class mqtt(object):
     def getTemp(self):
         return self.__getShort(31)
 
+    def _value_payload(self):
+        value_pl = {}
+        value_pl['logger'] = {"state": self.status}
+        value_pl['power'] = self.getPower()
+        value_pl['E-today'] = self.getEToday()
+        value_pl['E-total'] = self.getETotal()
+        return value_pl
+
     def _attribute_payload(self):
+        attr_pl = {}
         if self.status == STATUS_ON:
-            attr_pl = {
+            attr_pl['logger'] = {
                 "inverter": self.serial,
                 "data": json.dumps(str(binascii.b2a_base64(self.data), encoding='ascii')),
                 "current_power": self.getPower(),
@@ -271,7 +316,7 @@ class mqtt(object):
             logger.debug("STATUS_ON attributes with ETotal: {0}, EToday: {1}, Power: {2}, Temp: {3}".format(self.getETotal(), self.getEToday(), self.getPower(), self.getTemp()))
             logger.debug(binascii.hexlify(self.data, ' '))
         else:
-            attr_pl = {
+            attr_pl['logger'] = {
                 "inverter": self.serial,
                 "timestamp": time.time(),
                 "last_update": "{0} {1}".format(self.reporttime.strftime('%Y-%m-%d'), self.reporttime.strftime('%H:%M:%S'))
@@ -283,19 +328,19 @@ class mqtt(object):
         try:
             # publish config
             if self.mqtt_client.publish(topics['config'][entity], json.dumps(config_pl[entity]), retain=self.mqtt_retain):
-                logger.debug("Publishing config {0} successful.".format(entity))
+                logger.debug("Publishing config for {0} successful.".format(entity))
                 return True
             else:
-                logger.warning("Publishing config {0} failed!".format(entity))
+                logger.warning("Publishing config for {0} failed!".format(entity))
                 return False
         except Exception as e:
             logger.error("Unhandled error publishing config for entity {0}: {1}".format(entity, e))
             return False
 
-    def _publish_attributes(self, topics, attr_pl):
+    def _publish_attributes(self, topics, attr_pl, entity):
         try:
             # publish attributes
-            if self.mqtt_client.publish(topics['attr'], json.dumps(attr_pl), retain=self.mqtt_retain):
+            if self.mqtt_client.publish(topics['attr'][entity], json.dumps(attr_pl[entity]), retain=self.mqtt_retain):
                 logger.debug("Publishing attributes successful.")
                 return True
             else:
@@ -305,14 +350,14 @@ class mqtt(object):
             logger.error("Unhandled error publishing attributes: {0}".format(e))
             return False
 
-    def _publish_state(self, topics, value_pl):
+    def _publish_state(self, topics, value_pl, entity):
         try:
             # publish state
-            if self.mqtt_client.publish(topics['state'], json.dumps(value_pl), retain=self.mqtt_retain):
-                logger.debug("Publishing state {0} successful.".format(json.dumps(value_pl)))
+            if self.mqtt_client.publish(topics['state'][entity], json.dumps(value_pl[entity]), retain=self.mqtt_retain):
+                logger.debug("Publishing state {0} successful.".format(json.dumps(value_pl[entity])))
                 return True
             else:
-                logger.warning("Publishing state {0} failed!".format(json.dumps(value_pl)))
+                logger.warning("Publishing state {0} failed!".format(json.dumps(value_pl[entity])))
                 return False
         except Exception as e:
             logger.error("Unhandled error publishing states: {0}".format(e))
@@ -331,17 +376,14 @@ class mqtt(object):
         topics = self._topics()
         # publish attributes
         attr_pl = self._attribute_payload()
-        self._publish_attributes(topics, attr_pl)
-
-        # Publish config
-        config_pl = self._config_payload(topics)
-        for entity in config_pl:
-            self._publish_config(topics, config_pl, entity)
+        for entity in attr_pl:
+            self._publish_attributes(topics, attr_pl, entity)
 
         # publish state
         value_pl = self._value_payload()
-        if self._publish_state(topics, value_pl):
-            logger.info('Message forwarded to MQTT service at "{0}"'.format(args.mqtt_host))
+        for entity in value_pl:
+            self._publish_state(topics, value_pl, entity)
+#            logger.info('Message forwarded to MQTT service at "{0}"'.format(args.mqtt_host))
 
         self.lock.release()
 
@@ -349,6 +391,12 @@ class mqtt(object):
         if rc == 0:
             logger.info("MQTT connected")
             # subscribe listening (not used)
+            # publish sensors
+            topics = self._topics()
+            config_pl = self._config_payload(topics)
+            for entity in config_pl:
+                self._publish_config(topics, config_pl, entity)
+
 
     def _mqtt_on_disconnect(self, client, userdata, flags, rc=0):
         if rc == 0:
