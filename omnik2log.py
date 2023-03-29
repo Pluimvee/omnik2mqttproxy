@@ -26,13 +26,14 @@ import logging
 import datetime
 import time
 import Omnik
+import socket
 
 __version__ = '2.0.0'
-listenaddress = b'127.0.0.1'                        # Default listenaddress
-listenport = 10004                                  # Make sure your firewall enables you listening at this port
+listenaddress = b'127.0.0.1'                       # Default listenaddress
+listenport = 10004                                 # Make sure your firewall enables you listening at this port
 # There is no need to change this if this proxy must log your data directly to the Omnik/SolarmanPV servers
-solarmanpv_address = b'176.58.117.69'               # If you have an aditional omniklogger, change the ip to enlarge the chain
-solarmanpv_port = 10004                             # This is the port the omnik/SolarmanPV datalogger server listens to
+omnikloggerpublicaddress = b'176.58.117.69'        # If you have an aditional omniklogger, change the ip to enlarge the chain
+omnikloggerdestport = 10004                        # This is the port the omnik/SolarmanPV datalogger server listens to
 STATUS_ON = 'ON'
 STATUS_OFF = 'OFF'
 CHECK_STATUS_INTERVAL   = 60    # we check each 60 seconds if everthing is still ok
@@ -43,7 +44,7 @@ global stopflag
 logging.basicConfig(
     level=logging.DEBUG, 
     format='%(asctime)s [%(levelname)s] - %(message)s',
-    filename='Omnik2mqtt.log',
+    filename='Omnik2log.log',
     force=True) 
 logger = logging.getLogger(__name__)
 
@@ -65,13 +66,9 @@ class ProxyServer(threading.Thread):
         threading.Thread.__init__(self)
         
         # creating MQTT client
-        if TCPHandler.mqtt_fw == None:
-            logger.info('Enabling MQTT forward to {0}:{1}'.format(args.mqtt_host, args.mqtt_port))
-            TCPHandler.mqtt_fw = mqtt(args)
-        
         TCPHandler.lastupdate = datetime.datetime.now()
 
-        # Create TCP server
+        # Create UDP server
         logger.info('Creating the TCP server')
         self.tcpserver = socketserver.TCPServer((args.listenaddress, args.listenport), TCPHandler)
 
@@ -82,17 +79,6 @@ class ProxyServer(threading.Thread):
 
     # the chack_status loop called each 60 sec
     def check_status(self):
-        if TCPHandler.lastupdate + datetime.timedelta(minutes=INVERTER_MAX_IDLE_TIME) < datetime.datetime.now():
-            logger.debug("No message send in the past {0} minutes, so the invertor is off".format(INVERTER_MAX_IDLE_TIME))
-            TCPHandler.mqtt_fw.status_off()
-            TCPHandler.lastupdate = datetime.datetime.now() # set last update to prevent burst of OFF messages
-        
-        # every now and then we register the sensors again
-        if self.announcetimer + datetime.timedelta(minutes=ANNOUNCE_INTERVAL) < datetime.datetime.now():
-            logger.debug("We past another {0} minutes, its time to announce the sensors".format(ANNOUNCE_INTERVAL))
-            TCPHandler.mqtt_fw.announce()
-            self.announcetimer = datetime.datetime.now()
-
         # Restart the timer
         logger.debug("We checked all internal processes and go back to sleep for {0} seconds".format(CHECK_STATUS_INTERVAL))
         self.statustimer = threading.Timer(CHECK_STATUS_INTERVAL, self.check_status)
@@ -102,10 +88,9 @@ class ProxyServer(threading.Thread):
         # Stop the loop
         self.tcpserver.shutdown()
         self.statustimer.cancel()
-        TCPHandler.mqtt_fw.close()
 
     def run(self):
-        # Try to run UDP server
+        # Try to run TCP server
         logger.info('Start Omnik proxy server. Listening to {0}:{1}'.format(args.listenaddress, args.listenport))
         self.tcpserver.serve_forever()
 
@@ -113,7 +98,6 @@ class ProxyServer(threading.Thread):
 # class to handle UDP packages
 class TCPHandler(socketserver.BaseRequestHandler):
 
-    mqtt_fw     = None
     lastupdate  = None
 
     def handle(self):
@@ -124,18 +108,16 @@ class TCPHandler(socketserver.BaseRequestHandler):
         self.request.close()
 
         omnikParser = Omnik.Response()
-        logger.info("Decoding Omnik message: '{0}'".format(omnikParser.decode(msg)))
+        logger.debug("Decoding Omnik message: '{0}'".format(omnikParser.decode(msg)))
 
         if omnikParser.isInverterStatus():
             TCPHandler.lastupdate = datetime.datetime.now()
-            logger.info("Processing message from '{0}' for inverter '{1}'".format(omnikParser.getLoggerId(), omnikParser.getInverterId()))
+            # if the package is more than 99 bytes, get the serial number form the inverter
+            logger.info("Processing message from logger '{0}' for inverter '{1}'".format(omnikParser.getLoggerId(), omnikParser.getInverterId()))
             # Log basics 
             logger.info("Power {0}, E-today {1}, E-total {2}".format(omnikParser.getPower(), omnikParser.getEToday(), omnikParser.getETotal()))
             # Log all
             logger.debug("{0}".format(omnikParser.getJSON()))
-            # Forward logger message to MTTQ if host is defined
-            if self.mqtt_fw:
-                self.mqtt_fw.update(omnikParser)
             
         elif omnikParser.isConfirmation():
             ## Using UDP we get a second message with \x68\x11\x41\xF0 2x[\xD5\x1F\x19\x24] 'DATA SEND IS OK\r\n' CRC \x16
@@ -143,229 +125,6 @@ class TCPHandler(socketserver.BaseRequestHandler):
             TCPHandler.lastupdate = datetime.datetime.now()
         else:
             logger.warning("Ignore unrecognized message")
-
-
-###############################################################################################
-# MQTT class
-class mqtt(object):
-    
-    # constructor
-    def __init__(self, args=[], kwargs={}):
-        self.mqtt_client_name = args.mqtt_client_name_prefix + uuid.uuid4().hex
-        self.mqtt_host = args.mqtt_host
-        self.mqtt_port = int(args.mqtt_port)
-        self.mqtt_retain = args.mqtt_retain
-        self.tls = args.mqtt_tls
-        self.ca_certs = args.mqtt_ca_certs
-        self.client_cert = args.mqtt_client_cert
-        self.client_key = args.mqtt_client_key
-
-        if not args.mqtt_username or not args.mqtt_password:
-            logger.error("Please specify MQTT username and password in the configuration")
-            self.mqtt_client = None
-            return
-        else:
-            self.mqtt_username = args.mqtt_username
-            self.mqtt_password = args.mqtt_password
-
-        # mqtt setup
-        self.mqtt_client = mqttclient.Client(self.mqtt_client_name)
-        self.mqtt_client.on_connect = self._mqtt_on_connect  # bind call back function
-        self.mqtt_client.on_disconnect = self._mqtt_on_disconnect  # bind call back function
-        # self.mqtt_client.on_message=mqtt_on_message (not used)
-        self.mqtt_client.username_pw_set(self.mqtt_username, self.mqtt_password)
-        # TLS support
-        if self.tls:
-            self.mqtt_client.tls_set(
-                ca_certs=self.ca_certs or None,
-                certfile=self.client_cert or None,
-                keyfile=self.client_key or None,
-            )
-
-        self.mqtt_client.connect(self.mqtt_host, self.mqtt_port)
-        # start processing messages
-        self.mqtt_client.loop_start()
-        # default prefixes
-        self.discovery_prefix = args.mqtt_discovery_prefix
-        self.device_name = args.mqtt_device_name
-        self.logger_sensor_name = args.mqtt_logger_sensor_name
-        self.serial = args.serialnumber
-
-        # a dict with all the topics we will be using
-        self.topics = {}
-        announce    = "{0}/sensor/{1}_{2}".format(self.discovery_prefix, self.logger_sensor_name, self.serial)
-        update      = "aha/{0}".format(self.serial)
-        
-        self.topics['logger'] = {}
-        self.topics['logger']['config']    = "{0}/logger/config".format(announce)
-        self.topics['logger']['state']     = "{0}/logger/state".format(update)
-        self.topics['logger']['attr']      = "{0}/logger/attr".format(update)
-
-        self.topics['power'] = {}
-        self.topics['power']['config']     = "{0}/power/config".format(announce)
-        self.topics['power']['state']      = "{0}/power/state".format(update)
-        self.topics['power']['attr']       = "{0}/power/attr".format(update)
-
-        self.topics['E-today'] = {}
-        self.topics['E-today']['config']   = "{0}/E-today/config".format(announce)
-        self.topics['E-today']['state']    = "{0}/E-today/state".format(update)
-        self.topics['E-today']['attr']     = "{0}/E-today/attr".format(update)
-
-        self.topics['E-total'] = {}
-        self.topics['E-total']['config']   = "{0}/E-total/config".format(announce)
-        self.topics['E-total']['state']    = "{0}/E-total/state".format(update)
-        self.topics['E-total']['attr']     = "{0}/E-total/attr".format(update)
-
-        # lock
-        self.lock = threading.Condition(threading.Lock())
-
-    def close(self):
-        if self.mqtt_client:
-            try:
-                self.mqtt_client.disconnect()
-            except Exception:
-                pass
-
-    def _sensors_payload(self):
-        # Device payload is generic for all sensors
-        device = {
-            "identifiers": ["{0}_{1}".format(self.device_name, self.serial)],
-            "name": "{0}_{1}".format(self.device_name, self.serial),
-            "mdl": "Omnik datalogger proxy",
-            "mf": 'InnoVeer',
-            "sw": __version__
-            }
-        
-        # Fill dict with sensors
-        sensors = {}
-        # The logger with state and (the raw mnessage) as attributes
-        sensors['logger'] = {
-            "uniq_id": "Logger_{0}".format(self.serial),
-            "name": "Omnik-Logger",
-            "stat_t": "{0}".format(self.topics['logger']['state']),
-            "json_attr_t": "{0}".format(self.topics['logger']['attr']),
-            "dev_cla": "enum",
-            "val_tpl": "{{ value_json.state }}",
-            "dev": device
-            }
-        # current_power
-        sensors['power'] = {
-            "uniq_id": "Power_{0}".format(self.serial),
-            "name": "Omnik-Power",
-            "stat_t": "{0}".format(self.topics['power']['state']),
-            "dev_cla": "power",
-            "state_class": "measurement",
-            "unit_of_measurement": "W",
-            "dev": device
-            }
-        # total power of today
-        sensors['E-today'] = {
-            "uniq_id": "EToday_{0}".format(self.serial),
-            "name": "Omnik-Energy-Today",
-            "stat_t": "{0}".format(self.topics['E-today']['state']),
-            "dev_cla": "energy",
-            "unit_of_measurement": "kWh",
-            "state_class": "total",
-            "dev": device
-            }
-        # total power life time
-        sensors['E-total'] = {
-            "uniq_id": "ETotal_{0}".format(self.serial),
-            "name": "Omnik-Energy-Total",
-            "stat_t": "{0}".format(self.topics['E-total']['state']),
-            "dev_cla": "energy",
-            "state_class": "total_increasing",
-            "unit_of_measurement": "kWh",
-            "dev": device
-            }
-        return sensors
-
-    # set sensor values
-    def _value_payload(self, status, omnikParser):
-        value_pl = {}
-        value_pl['logger'] = {"state": status}
-        if status == STATUS_ON:
-            value_pl['power'] = omnikParser.getPower()
-            value_pl['E-today'] = omnikParser.getEToday()
-            value_pl['E-total'] = omnikParser.getETotal()
-        else:
-            value_pl['power'] = 0
-
-        return value_pl
-
-    # set the attribute of the logger binary sensor
-    def _attribute_payload(self, omnikParser):
-        attr_pl = {}
-        attr_pl['logger'] = omnikParser.getValues()
-        return attr_pl
-
-    # publish the message to the topic
-    def _publish(self, sensor, item, payload):
-        try:
-            if self.mqtt_client.publish(self.topics[sensor][item], json.dumps(payload[sensor]), retain=self.mqtt_retain):
-                logger.debug("Publishing {0} for sensor {1} successful.".format(item, sensor))
-                return True
-            else:
-                logger.warning("Publishing {0} for sensor {1} failed!".format(item, sensor))
-                return False
-        except Exception as e:
-            logger.error("Unhandled error publishing {0} for sensor {1}: {2}".format(item, sensor, e))
-            return False
-
-    # its been awhile since we heart something from the invertor, so we think its of
-    def status_off(self):
-        self.lock.acquire()
-        logger.debug('Sending STATUS_OFF to MQTT service at "{0}"'.format(args.mqtt_host))
-
-        # publish state
-        value_pl = self._value_payload(STATUS_OFF, None)
-        for sensor in value_pl:
-            self._publish(sensor, 'state', value_pl)
-
-        self.lock.release()
-
-    # update
-    def update(self, omnikParser):
-        # Decode data: base64.b64decode(json.loads(d, encoding='UTF-8'))
-        self.lock.acquire()
-        logger.debug('Sending STATUS_ON to MQTT service at "{0}"'.format(args.mqtt_host))
-
-        # publish state
-        value_pl = self._value_payload(STATUS_ON, omnikParser)
-        for sensor in value_pl:
-            self._publish(sensor, 'state', value_pl)
-
-        # publish attributes
-        attr_pl = self._attribute_payload(omnikParser)
-        for sensor in attr_pl:
-            self._publish(sensor, 'attr', attr_pl)
-
-        self.lock.release()
-
-    # register/announce the device & sensors
-    def announce(self):
-        # publish sensors
-        self.lock.acquire()
-
-        payload = self._sensors_payload()
-        for sensor in payload:
-            self._publish(sensor, 'config', payload)
-
-        self.lock.release()
-
-    # when connected announce the sensors
-    def _mqtt_on_connect(self, client, userdata, flags, rc=0):
-        if rc == 0:
-            logger.info("MQTT connected")
-            self.announce()
-            # subscribe listening (not used)
-
-    #disconnect
-    def _mqtt_on_disconnect(self, client, userdata, flags, rc=0):
-        if rc == 0:
-            logger.info("MQTT disconnected")
-
-# endof class mqtt
 
 ###############################################################################################
 # main
@@ -404,8 +163,8 @@ if __name__ == '__main__':
                         help='The local port to listen to')
     parser.add_argument('--omniklogger', default=None,
                         help='Forward to an address omnik/SolarmanPV datalogger server listens to. '
-                             'Set this to {0} as final forwarder.'.format(solarmanpv_address))
-    parser.add_argument('--omnikloggerport', default=solarmanpv_port, type=int,
+                             'Set this to {0} as final forwarder.'.format(omnikloggerpublicaddress))
+    parser.add_argument('--omnikloggerport', default=omnikloggerdestport, type=int,
                         help='The port the omnik/SolarmanPV datalogger server listens to')
     parser.add_argument('--mqtt_host', default='',
                         help='The mqtt host to forward processed data to. Config overrides.')
