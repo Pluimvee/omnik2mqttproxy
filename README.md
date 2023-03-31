@@ -16,9 +16,7 @@ Eventually I would like this version to be running in AppDeamon, however so far 
 ### Command line
 ```
 usage: omnikloggerproxy.py [-h] --serialnumber SERIALNUMBER [SERIALNUMBER ...]
-                           [--settings FILE  Path to .yaml configuration file]
-                           [--section  Section to .yaml configuration file to use. Defaults to the first section found.]
-                           [--config FILE  Path to configuration file (ini) (DECREPATED!)]
+                           [--config FILE  Path to configuration file (ini)]
                            [--loglevel LOGLEVEL]
                            [--listenaddress LISTENADDRESS]
                            [--listenport LISTENPORT]
