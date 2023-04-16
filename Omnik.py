@@ -30,7 +30,7 @@ class Response:
         if start != 0x68:
             return "Unknown start byte, expecting 0x68, received {0}".format(start)
 
-        if len(msg) != payload_lg+14:
+        if len(msg) < payload_lg+14:
             return "Expecting {0} bytes, recieved {1}".format(payload_lg+14, len(msg))
         
         if loggerId1 != loggerId2:
@@ -39,9 +39,9 @@ class Response:
 
         self.payload = binascii.hexlify(msg[12:12+payload_lg], ' ')
 
-        if payload_lg == 125:
+        if payload_lg >= 67:
 #           instr = struct.unpack("BBB", msg[12:15])   three bytes with the response id? \x81\x02\x01
-            payload = struct.unpack(">16s20H2I18s15s5s9s", msg[15:126])
+            payload = struct.unpack(">16s20H2I", msg[15:15+64])
 
             self.values["inverter_id"]     = str(payload[0].decode())
             self.values["temperature"]    = payload[1]/10.0
@@ -66,8 +66,11 @@ class Response:
             self.values["energy_today"]   = payload[20]/100.0
             self.values["energy_total"]   = payload[21]/10.0
             self.values["operating_hours"]= payload[22]
-            self.values["master_version"] = str(payload[24].decode())
-            self.values["slave_version"]  = str(payload[26].decode())
+
+        if payload_lg >= 125:
+            payload = struct.unpack("15s5s9s", msg[15+64:125-64])
+            self.values["master_version"] = str(payload[0].decode())
+            self.values["slave_version"]  = str(payload[1].decode())
 
         # using UDP we get two message, the above and a 17bytes confirmation
         # 'DATA SEND IS OK\r\n'
